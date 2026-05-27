@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=AIOS Panel (autostart)
+Exec=/opt/aios/desktop/kde/aios_panel.py
+Type=Application
+X-KDE-autostart-phase=2

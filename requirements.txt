@@ -30,6 +30,9 @@ openwakeword>=0.6.0
 redis>=5.0.0
 aiofiles>=23.2.0
 
+# KDE Panel GUI
+PyQt6>=6.7.0
+
 # Dev tools (optional, for agent scripts)
 rich>=13.7.0
 typer>=0.12.0

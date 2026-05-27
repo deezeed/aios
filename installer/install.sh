@@ -8,6 +8,7 @@ AIOS_USER="${SUDO_USER:-aios}"
 AIOS_HOME="/home/${AIOS_USER}"
 AIOS_DIR="/opt/aios"
 LOG="/tmp/aios-install.log"
+DESKTOP="${AIOS_DESKTOP:-}"   # "kde" | "sway" | nastavené interaktívne
 
 # Colors
 R='\033[0;31m' G='\033[0;32m' Y='\033[0;33m'
@@ -59,8 +60,76 @@ install_base_packages() {
     log "Base packages installed"
 }
 
+choose_desktop() {
+    if [[ -n "$DESKTOP" ]]; then
+        return
+    fi
+    echo ""
+    echo -e "${W}Vyber desktop prostredie:${RESET}"
+    echo -e "  ${C}1)${RESET} ${W}KDE Plasma${RESET}  — podobné Windowsu, jednoduché ovládanie ${G}(odporúčané)${RESET}"
+    echo -e "  ${C}2)${RESET} ${W}Sway (Tiling)${RESET} — pre pokročilých, klávesnicové ovládanie"
+    echo ""
+    read -rp "Voľba [1/2, default=1]: " choice
+    case "${choice:-1}" in
+        2) DESKTOP="sway" ;;
+        *) DESKTOP="kde" ;;
+    esac
+    echo -e "${G}Zvolený desktop: ${DESKTOP}${RESET}"
+}
+
+install_fonts() {
+    log "Installing JetBrains Mono Nerd Font..."
+    local font_url="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip"
+    local font_dir="/usr/share/fonts/JetBrainsMono"
+    mkdir -p "$font_dir"
+    curl -sL "$font_url" -o /tmp/jbmono.zip 2>>"$LOG" && \
+        unzip -qo /tmp/jbmono.zip -d "$font_dir" && \
+        fc-cache -f && \
+        log "Font installed" || warn "Font download failed"
+}
+
+install_kde_desktop() {
+    step "Installing KDE Plasma desktop"
+    pacman -S --noconfirm --needed \
+        plasma-meta \
+        kde-applications-meta \
+        sddm \
+        alacritty \
+        konsole \
+        firefox \
+        dolphin \
+        ark \
+        kate \
+        spectacle \
+        pipewire wireplumber pipewire-pulse \
+        pavucontrol \
+        network-manager-applet \
+        python-pyqt6 \
+        noto-fonts noto-fonts-emoji \
+        xdg-desktop-portal-kde \
+        2>>"$LOG"
+
+    # Štýl — Breeze Dark
+    sudo -u "$AIOS_USER" kwriteconfig5 \
+        --file kdeglobals --group KDE --key widgetStyle "Breeze" 2>>"$LOG" || true
+    sudo -u "$AIOS_USER" kwriteconfig5 \
+        --file kdeglobals --group General --key ColorScheme "BreezeDark" 2>>"$LOG" || true
+
+    # Autostart AIOS panel
+    local autostart_dir="${AIOS_HOME}/.config/autostart"
+    sudo -u "$AIOS_USER" mkdir -p "$autostart_dir"
+    sudo -u "$AIOS_USER" cp "${AIOS_DIR}/desktop/kde/aios-autostart.desktop" "$autostart_dir/"
+
+    # Desktop súbor pre spustenie
+    cp "${AIOS_DIR}/desktop/kde/aios-panel.desktop" /usr/share/applications/
+
+    systemctl enable sddm
+    install_fonts
+    log "KDE Plasma installed"
+}
+
 install_wayland_desktop() {
-    step "Installing Wayland desktop environment"
+    step "Installing Sway (Wayland tiling) desktop"
     pacman -S --noconfirm --needed \
         sway swaybg swaylock swayidle \
         waybar \
@@ -78,17 +147,16 @@ install_wayland_desktop() {
         noto-fonts noto-fonts-emoji \
         2>>"$LOG"
 
-    # Install JetBrains Mono Nerd Font
-    log "Installing JetBrains Mono Nerd Font..."
-    local font_url="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.zip"
-    local font_dir="/usr/share/fonts/JetBrainsMono"
-    mkdir -p "$font_dir"
-    curl -sL "$font_url" -o /tmp/jbmono.zip 2>>"$LOG" && \
-        unzip -qo /tmp/jbmono.zip -d "$font_dir" && \
-        fc-cache -f && \
-        log "Font installed" || warn "Font download failed, install manually"
+    install_fonts
+    log "Sway desktop installed"
+}
 
-    log "Wayland desktop installed"
+install_desktop() {
+    if [[ "$DESKTOP" == "kde" ]]; then
+        install_kde_desktop
+    else
+        install_wayland_desktop
+    fi
 }
 
 install_docker() {
@@ -236,27 +304,25 @@ install_aios() {
 setup_configs() {
     step "Setting up AIOS configuration"
 
-    # System config
     mkdir -p /etc/aios
     cp "${AIOS_DIR}/config/aios.toml" /etc/aios/aios.toml
 
-    # User config dirs
     local cfg="${AIOS_HOME}/.config"
-    sudo -u "$AIOS_USER" mkdir -p \
-        "${cfg}/sway" \
-        "${cfg}/waybar" \
-        "${cfg}/alacritty" \
-        "${cfg}/mako" \
-        "${cfg}/rofi"
 
-    # Sway config
-    sudo -u "$AIOS_USER" cp "${AIOS_DIR}/desktop/compositor/sway.config" "${cfg}/sway/config"
+    if [[ "$DESKTOP" == "sway" ]]; then
+        sudo -u "$AIOS_USER" mkdir -p \
+            "${cfg}/sway" "${cfg}/waybar" "${cfg}/alacritty" \
+            "${cfg}/mako" "${cfg}/rofi"
+        sudo -u "$AIOS_USER" cp "${AIOS_DIR}/desktop/compositor/sway.config" "${cfg}/sway/config"
+        sudo -u "$AIOS_USER" cp "${AIOS_DIR}/desktop/panel/waybar.config" "${cfg}/waybar/config"
+        sudo -u "$AIOS_USER" cp "${AIOS_DIR}/desktop/panel/waybar.css" "${cfg}/waybar/style.css"
+    else
+        sudo -u "$AIOS_USER" mkdir -p "${cfg}/alacritty"
+        # Nastav klávesové skratky KDE
+        sudo -u "$AIOS_USER" bash "${AIOS_DIR}/desktop/kde/kde-shortcuts.sh" 2>>"$LOG" || true
+    fi
 
-    # Waybar config
-    sudo -u "$AIOS_USER" cp "${AIOS_DIR}/desktop/panel/waybar.config" "${cfg}/waybar/config"
-    sudo -u "$AIOS_USER" cp "${AIOS_DIR}/desktop/panel/waybar.css" "${cfg}/waybar/style.css"
-
-    # Alacritty config
+    # Alacritty config (shared)
     cat > "${cfg}/alacritty/alacritty.toml" << 'ALACRITTY_EOF'
 [window]
 opacity = 0.92
@@ -334,20 +400,21 @@ ENV_EOF
 
 setup_sddm() {
     step "Setting up display manager (SDDM)"
-    pacman -S --noconfirm --needed sddm 2>>"$LOG"
-    systemctl enable sddm
+    # KDE install already handles SDDM; Sway needs manual setup
+    if [[ "$DESKTOP" == "sway" ]]; then
+        pacman -S --noconfirm --needed sddm 2>>"$LOG"
+        systemctl enable sddm
 
-    # Wayland session file for Sway
-    mkdir -p /usr/share/wayland-sessions
-    cat > /usr/share/wayland-sessions/sway-aios.desktop << 'SESSION_EOF'
+        mkdir -p /usr/share/wayland-sessions
+        cat > /usr/share/wayland-sessions/sway-aios.desktop << 'SESSION_EOF'
 [Desktop Entry]
 Name=AIOS (Sway)
 Comment=AI Operating System — Sway Wayland
 Exec=sway
 Type=Application
 SESSION_EOF
-
-    log "SDDM configured with AIOS session"
+    fi
+    log "Display manager configured"
 }
 
 print_summary() {
@@ -378,9 +445,10 @@ main() {
     banner
     check_root
     check_arch
+    choose_desktop
 
     install_base_packages
-    install_wayland_desktop
+    install_desktop
     install_docker
     install_kubernetes
     install_dev_tools

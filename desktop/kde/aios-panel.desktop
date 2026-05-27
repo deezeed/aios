@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=AIOS Panel
+Comment=AI Operating System — floating assistant panel
+Exec=/opt/aios/desktop/kde/aios_panel.py
+Icon=assistant
+Terminal=false
+Type=Application
+Categories=Utility;AI;
+Keywords=aios;ai;assistant;
+StartupNotify=false
