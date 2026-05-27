@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+import markdown as _md
 import httpx
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPalette, QPixmap
@@ -21,7 +22,7 @@ from PyQt6.QtWidgets import (
     QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
     QLineEdit, QMainWindow, QMenu, QPlainTextEdit, QPushButton,
     QScrollArea, QSizePolicy, QSystemTrayIcon, QTabWidget,
-    QTextEdit, QVBoxLayout, QWidget,
+    QTextBrowser, QTextEdit, QVBoxLayout, QWidget,
 )
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -34,6 +35,26 @@ BG_USER     = "#0f3460"
 BG_CARD     = "#0d1117"
 BG_INPUT    = "#0d1117"
 AGENTS_FILE = Path.home() / ".config" / "aios" / "agents.json"
+
+_MD_CSS = f"""
+<style>
+body   {{ margin:0; padding:0; color:#eceff1; font-family:'Segoe UI',sans-serif; font-size:10pt; background:transparent; }}
+p      {{ margin:4px 0; }}
+h1,h2,h3 {{ color:{ACCENT}; margin:6px 0 3px; }}
+code   {{ background:#0d1117; color:#80cbc4; padding:1px 5px; border-radius:4px; font-family:Consolas,monospace; font-size:9.5pt; }}
+pre    {{ background:#0d1117; border:1px solid #1e2a30; border-radius:6px; padding:10px; margin:6px 0; }}
+pre code {{ background:transparent; padding:0; color:#a5d6a7; }}
+ul,ol  {{ margin:4px 0; padding-left:18px; }}
+li     {{ margin:2px 0; }}
+strong {{ color:#ffffff; }}
+em     {{ color:#b0bec5; }}
+a      {{ color:{ACCENT}; }}
+table  {{ border-collapse:collapse; width:100%; margin:6px 0; }}
+th     {{ background:#1e2a30; color:{ACCENT}; padding:4px 8px; text-align:left; }}
+td     {{ border-top:1px solid #1e2a30; padding:4px 8px; }}
+blockquote {{ border-left:3px solid {ACCENT}; margin:4px 0; padding:2px 8px; color:#90a4ae; }}
+</style>
+"""
 
 AVAILABLE_TOOLS = [
     "shell_exec", "file_read", "file_write", "file_list",
@@ -191,28 +212,58 @@ class AgentWorker(QThread):
 
 # ─── Chat tab ─────────────────────────────────────────────────────────────────
 
+def _to_html(text: str) -> str:
+    html = _md.markdown(text, extensions=["fenced_code", "tables", "nl2br"])
+    return f"<html><head>{_MD_CSS}</head><body>{html}</body></html>"
+
+
 class MessageBubble(QWidget):
     def __init__(self, text: str, is_user: bool):
         super().__init__()
+        self._is_user = is_user
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 3, 8, 3)
+        lay.setSpacing(2)
+
         role = QLabel("Ty" if is_user else "AIOS")
         role.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
         role.setStyleSheet(f"color: {'#90a4ae' if is_user else ACCENT}; background: transparent;")
-        self._lbl = QLabel(text)
-        self._lbl.setWordWrap(True)
-        self._lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self._lbl.setFont(QFont("Segoe UI", 10))
-        self._lbl.setStyleSheet(f"""
-            background: {BG_USER if is_user else BG_MSG};
-            color: #eceff1; border-radius: 8px; padding: 8px 12px;
-        """)
         lay.addWidget(role)
-        lay.addWidget(self._lbl)
+
+        if is_user:
+            self._lbl = QLabel(text)
+            self._lbl.setWordWrap(True)
+            self._lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            self._lbl.setFont(QFont("Segoe UI", 10))
+            self._lbl.setStyleSheet(f"background:{BG_USER}; color:#eceff1; border-radius:8px; padding:8px 12px;")
+            lay.addWidget(self._lbl)
+        else:
+            self._browser = QTextBrowser()
+            self._browser.setOpenExternalLinks(True)
+            self._browser.setStyleSheet(f"""
+                QTextBrowser {{
+                    background: {BG_MSG}; border-radius: 8px; border: none;
+                    padding: 8px 12px; color: #eceff1;
+                }}
+                QScrollBar:vertical {{ width: 0px; }}
+            """)
+            self._browser.setHtml(_to_html(text))
+            self._browser.document().setDocumentMargin(0)
+            self._adjust_height()
+            lay.addWidget(self._browser)
+
         self.setStyleSheet("background: transparent;")
 
+    def _adjust_height(self):
+        doc_h = int(self._browser.document().size().height())
+        self._browser.setFixedHeight(min(max(doc_h + 20, 40), 600))
+
     def update_text(self, t: str):
-        self._lbl.setText(t)
+        if self._is_user:
+            self._lbl.setText(t)
+        else:
+            self._browser.setHtml(_to_html(t))
+            self._adjust_height()
 
 
 class ChatTab(QWidget):

@@ -32,6 +32,7 @@ aiofiles>=23.2.0
 
 # KDE Panel GUI
 PyQt6>=6.7.0
+markdown>=3.6
 
 # Dev tools (optional, for agent scripts)
 rich>=13.7.0
