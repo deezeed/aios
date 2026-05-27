@@ -1,0 +1,103 @@
+[system]
+name = "AIOS"
+version = "0.1.0"
+log_level = "INFO"
+data_dir = "/var/lib/aios"
+cache_dir = "/var/cache/aios"
+config_dir = "/etc/aios"
+
+[ai.router]
+# Strategy: "local_first" | "cloud_first" | "cost_optimized" | "speed_optimized"
+strategy = "local_first"
+fallback_to_cloud = true
+max_local_tokens = 4096
+
+[ai.local]
+provider = "ollama"
+base_url = "http://localhost:11434"
+default_model = "llama3.2:3b"
+code_model = "qwen2.5-coder:7b"
+embedding_model = "nomic-embed-text"
+fast_model = "llama3.2:1b"
+
+[ai.cloud]
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+fast_model = "claude-haiku-4-5-20251001"
+max_tokens = 8192
+# API key loaded from env: ANTHROPIC_API_KEY
+
+[voice]
+enabled = true
+wake_word = "aios"
+wake_word_sensitivity = 0.7
+language = "sk"  # Slovak, falls back to "en"
+
+[voice.stt]
+engine = "faster-whisper"
+model = "medium"         # tiny | base | small | medium | large-v3
+device = "auto"          # auto | cpu | cuda
+compute_type = "int8"
+beam_size = 5
+
+[voice.tts]
+engine = "piper"
+voice = "sk_SK-lili-medium"    # Slovak voice, fallback: en_US-ryan-high
+rate = 1.0
+volume = 0.9
+
+[voice.audio]
+input_device = "default"
+output_device = "default"
+sample_rate = 16000
+chunk_size = 1024
+
+[desktop]
+compositor = "sway"
+terminal = "alacritty"
+browser = "firefox"
+editor = "neovim"
+file_manager = "ranger"
+
+[desktop.panel]
+position = "right"
+width = 400
+ai_always_visible = true
+hotkey = "Super+A"
+
+[agents]
+max_concurrent = 5
+timeout = 300
+sandbox = true
+workspace_dir = "/var/lib/aios/workspaces"
+
+[agents.tools]
+shell = true
+file_ops = true
+web_search = false     # disable by default, enable per-agent
+docker = true
+kubernetes = true
+git = true
+network = true
+
+[it.devops]
+docker_socket = "/var/run/docker.sock"
+kubeconfig = "~/.kube/config"
+default_registry = "docker.io"
+
+[it.security]
+nmap_enabled = true
+audit_logging = true
+log_file = "/var/log/aios/security.log"
+
+[it.mldev]
+jupyter_port = 8888
+tensorboard_port = 6006
+mlflow_port = 5000
+default_framework = "pytorch"
+
+[automation]
+cron_enabled = true
+webhook_port = 9090
+event_bus = "redis"
+redis_url = "redis://localhost:6379"

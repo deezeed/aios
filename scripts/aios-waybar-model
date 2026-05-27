@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+"""Waybar module: shows currently active AI model."""
+import httpx, json, subprocess, sys
+
+try:
+    r = httpx.get("http://127.0.0.1:7474/health", timeout=1.5)
+    data = r.json()
+    local = data.get("local_model_available", False)
+    model = "llama3.2" if local else "claude"
+    print(json.dumps({"text": model, "tooltip": f"Strategy: local_first\nLocal: {local}"}))
+except Exception:
+    print(json.dumps({"text": "---", "tooltip": "AIOS offline"}))

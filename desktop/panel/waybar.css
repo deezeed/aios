@@ -1,0 +1,151 @@
+/* AIOS Waybar theme — dark, cyan accents */
+
+* {
+    font-family: "JetBrains Mono Nerd Font", "Noto Sans", monospace;
+    font-size: 12px;
+    min-height: 0;
+}
+
+window#waybar {
+    background-color: rgba(18, 18, 18, 0.95);
+    border-bottom: 2px solid #00bcd4;
+    color: #cdd6f4;
+    transition-property: background-color;
+    transition-duration: 0.5s;
+}
+
+.modules-left,
+.modules-center,
+.modules-right {
+    padding: 0 4px;
+}
+
+#workspaces button {
+    padding: 0 6px;
+    background-color: transparent;
+    color: #546e7a;
+    border-bottom: 2px solid transparent;
+    margin: 4px 2px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+#workspaces button.focused {
+    color: #00bcd4;
+    border-bottom: 2px solid #00bcd4;
+    background-color: rgba(0, 188, 212, 0.1);
+}
+
+#workspaces button.urgent {
+    background-color: #f44336;
+    color: #ffffff;
+}
+
+#workspaces button:hover {
+    background-color: rgba(0, 188, 212, 0.15);
+    color: #80deea;
+}
+
+#clock {
+    color: #80cbc4;
+    font-weight: bold;
+    padding: 0 12px;
+}
+
+#cpu {
+    color: #a5d6a7;
+}
+
+#memory {
+    color: #81d4fa;
+}
+
+#temperature {
+    color: #ffcc02;
+}
+
+#temperature.critical {
+    color: #f44336;
+    animation: blink 0.5s infinite;
+}
+
+#disk {
+    color: #ce93d8;
+}
+
+#network {
+    color: #80cbc4;
+}
+
+#network.disconnected {
+    color: #f44336;
+}
+
+#pulseaudio {
+    color: #ffcc02;
+}
+
+#pulseaudio.muted {
+    color: #546e7a;
+}
+
+#battery {
+    color: #a5d6a7;
+}
+
+#battery.charging {
+    color: #00e676;
+}
+
+#battery.warning:not(.charging) {
+    color: #ffcc02;
+}
+
+#battery.critical:not(.charging) {
+    color: #f44336;
+    animation: blink 0.5s infinite;
+}
+
+#custom-aios-status {
+    color: #00bcd4;
+    font-weight: bold;
+    padding: 0 8px;
+    border-radius: 4px;
+    background-color: rgba(0, 188, 212, 0.1);
+    border: 1px solid rgba(0, 188, 212, 0.3);
+    margin: 4px 2px;
+}
+
+#custom-aios-model {
+    color: #546e7a;
+    font-size: 10px;
+    padding: 0 4px;
+}
+
+#custom-voice {
+    color: #546e7a;
+    padding: 0 6px;
+}
+
+#custom-voice.active {
+    color: #f44336;
+    animation: pulse 1s infinite;
+}
+
+tooltip {
+    background-color: rgba(18, 18, 18, 0.95);
+    border: 1px solid #00bcd4;
+    border-radius: 6px;
+    color: #cdd6f4;
+    padding: 6px 10px;
+}
+
+@keyframes blink {
+    to { color: transparent; }
+}
+
+@keyframes pulse {
+    0%   { opacity: 1.0; }
+    50%  { opacity: 0.4; }
+    100% { opacity: 1.0; }
+}

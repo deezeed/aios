@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""Waybar module: AIOS daemon status indicator."""
+import httpx, json, sys
+
+try:
+    r = httpx.get("http://127.0.0.1:7474/health", timeout=1.5)
+    data = r.json()
+    local = data.get("local_model_available", False)
+    model_icon = "⚡" if local else "☁"
+    print(json.dumps({
+        "text": f"{model_icon} AIOS",
+        "tooltip": f"Local model: {'on' if local else 'off'}\nVoice: {'on' if data.get('voice_enabled') else 'off'}",
+        "class": "active",
+    }))
+except Exception:
+    print(json.dumps({"text": "✗ AIOS", "class": "error", "tooltip": "Daemon not running"}))

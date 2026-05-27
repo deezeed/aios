@@ -1,0 +1,311 @@
+#!/usr/bin/env python3
+"""
+aios — AIOS command-line interface.
+Talk to the AI, run agents, manage docker/k8s, and control the OS from the terminal.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import readline
+import sys
+from pathlib import Path
+from typing import Optional
+
+import httpx
+
+DAEMON_URL = os.getenv("AIOS_URL", "http://127.0.0.1:7474")
+HISTORY_FILE = Path.home() / ".aios_history"
+
+# ANSI colors
+R = "\033[0;31m"
+G = "\033[0;32m"
+Y = "\033[0;33m"
+B = "\033[0;34m"
+M = "\033[0;35m"
+C = "\033[0;36m"
+W = "\033[1;37m"
+DIM = "\033[2m"
+RESET = "\033[0m"
+BOLD = "\033[1m"
+
+
+def banner():
+    print(f"""
+{C}╔═══════════════════════════════════════════╗
+║          {W}AIOS — AI Operating System{C}         ║
+║         {DIM}AI-native. IT-first. Yours.{C}          ║
+╚═══════════════════════════════════════════╝{RESET}
+Type {Y}/help{RESET} for commands, {Y}/agent <task>{RESET} to run an agent.
+""")
+
+
+def print_status(ok: bool, msg: str):
+    icon = f"{G}✓{RESET}" if ok else f"{R}✗{RESET}"
+    print(f"  {icon} {msg}")
+
+
+async def check_daemon() -> bool:
+    async with httpx.AsyncClient(timeout=2.0) as client:
+        try:
+            r = await client.get(f"{DAEMON_URL}/health")
+            return r.status_code == 200
+        except Exception:
+            return False
+
+
+async def stream_chat(messages: list[dict], system: Optional[str] = None):
+    """Stream a chat response from the daemon via WebSocket."""
+    import websockets
+    ws_url = DAEMON_URL.replace("http://", "ws://").replace("https://", "wss://")
+    try:
+        async with websockets.connect(f"{ws_url}/chat/stream") as ws:
+            await ws.send(json.dumps({
+                "messages": messages,
+                "system": system,
+            }))
+            print(f"\n{C}AIOS:{RESET} ", end="", flush=True)
+            while True:
+                msg = await ws.recv()
+                try:
+                    data = json.loads(msg)
+                    if data.get("done"):
+                        print()
+                        break
+                except json.JSONDecodeError:
+                    print(msg, end="", flush=True)
+    except Exception as exc:
+        print(f"\n{R}Streaming failed: {exc}{RESET}")
+        print(f"{DIM}Falling back to non-streaming...{RESET}")
+        await fallback_chat(messages, system)
+
+
+async def fallback_chat(messages: list[dict], system: Optional[str] = None):
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        r = await client.post(f"{DAEMON_URL}/chat", json={
+            "messages": messages,
+            "system": system,
+            "stream": False,
+        })
+        r.raise_for_status()
+        print(f"\n{C}AIOS:{RESET} {r.json()['response']}\n")
+
+
+async def run_agent(task: str, context: Optional[dict] = None):
+    print(f"{Y}Spúšťam agenta...{RESET}")
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        r = await client.post(f"{DAEMON_URL}/agent/run", json={
+            "task": task,
+            "context": context,
+        })
+        r.raise_for_status()
+        data = r.json()
+
+    status_color = G if data["status"] == "completed" else R
+    print(f"\n{status_color}[{data['status'].upper()}]{RESET} "
+          f"Steps: {data['steps']} | Time: {data.get('duration_s', 0):.1f}s\n")
+
+    if data.get("output"):
+        print(f"{W}Výsledok:{RESET}\n{data['output']}\n")
+    if data.get("error"):
+        print(f"{R}Chyba:{RESET} {data['error']}\n")
+
+
+async def docker_status():
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(f"{DAEMON_URL}/docker/ps")
+        r.raise_for_status()
+        data = r.json()
+
+    containers = data.get("containers", [])
+    if not containers:
+        print(f"{DIM}Žiadne bežiace kontajnery.{RESET}")
+        return
+
+    print(f"\n{W}{'CONTAINER':<25} {'IMAGE':<30} {'STATUS':<20} {'PORTS'}{RESET}")
+    print("─" * 90)
+    for c in containers:
+        name = c.get("Names", c.get("Name", "?"))[:24]
+        image = c.get("Image", "?")[:29]
+        status = c.get("Status", "?")[:19]
+        ports = c.get("Ports", "")[:30]
+        color = G if "Up" in status else R
+        print(f"{color}{name:<25}{RESET} {image:<30} {status:<20} {DIM}{ports}{RESET}")
+    print()
+
+
+async def system_info():
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        r = await client.get(f"{DAEMON_URL}/system/info")
+        r.raise_for_status()
+        data = r.json()
+
+    sections = [("CPU / Load", "cpu"), ("Memory", "memory"),
+                ("Disk", "disk"), ("Network", "network_if"), ("Uptime", "uptime")]
+    for label, key in sections:
+        if key in data and data[key]:
+            print(f"\n{W}{label}:{RESET}")
+            for line in data[key].splitlines():
+                print(f"  {line}")
+    print()
+
+
+def setup_readline():
+    if HISTORY_FILE.exists():
+        readline.read_history_file(str(HISTORY_FILE))
+    readline.set_history_length(1000)
+    import atexit
+    atexit.register(readline.write_history_file, str(HISTORY_FILE))
+
+
+async def interactive_shell():
+    setup_readline()
+    banner()
+
+    if not await check_daemon():
+        print(f"{R}AIOS daemon nie je spustený.{RESET}")
+        print(f"Spusť: {Y}sudo systemctl start aiosd{RESET} alebo {Y}python -m core.daemon.aiosd{RESET}\n")
+
+    conversation: list[dict] = []
+
+    while True:
+        try:
+            user_input = input(f"{M}you{RESET} {DIM}▶{RESET} ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print(f"\n{DIM}Dovidenia.{RESET}")
+            break
+
+        if not user_input:
+            continue
+
+        # ─── Commands ────────────────────────────────────────────────────────
+        if user_input.startswith("/"):
+            parts = user_input.split(None, 1)
+            cmd = parts[0].lower()
+            arg = parts[1] if len(parts) > 1 else ""
+
+            if cmd in ("/quit", "/exit", "/q"):
+                print(f"{DIM}Dovidenia.{RESET}")
+                break
+
+            elif cmd == "/help":
+                print(f"""
+{W}AIOS CLI príkazy:{RESET}
+  {Y}/help{RESET}           — táto nápoveda
+  {Y}/agent <task>{RESET}  — spusti IT agenta na úlohu
+  {Y}/docker{RESET}         — status Docker kontajnerov
+  {Y}/sysinfo{RESET}        — info o systéme (CPU, RAM, disk)
+  {Y}/clear{RESET}          — vymazať históriu konverzácie
+  {Y}/local{RESET}          — prepnúť na lokálny model (Ollama)
+  {Y}/cloud{RESET}          — prepnúť na Claude API
+  {Y}/speak <text>{RESET}   — TTS: hovor text nahlas
+  {Y}/quit{RESET}           — ukončiť
+
+{W}Klávesové skratky:{RESET}
+  {Y}Ctrl+C{RESET}          — prerušiť
+  {Y}↑ / ↓{RESET}           — história príkazov
+""")
+
+            elif cmd == "/agent":
+                if not arg:
+                    print(f"{R}Použitie: /agent <popis úlohy>{RESET}")
+                else:
+                    await run_agent(arg)
+
+            elif cmd == "/docker":
+                await docker_status()
+
+            elif cmd == "/sysinfo":
+                await system_info()
+
+            elif cmd == "/clear":
+                conversation.clear()
+                print(f"{DIM}Konverzácia vymazaná.{RESET}\n")
+
+            elif cmd == "/speak":
+                if not arg:
+                    print(f"{R}Použitie: /speak <text>{RESET}")
+                else:
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        await client.post(f"{DAEMON_URL}/voice/speak",
+                                          json={"text": arg, "priority": True})
+
+            elif cmd == "/local":
+                print(f"{G}Prepnuté na lokálny model.{RESET}")
+                # Saved as a context hint for next messages
+                conversation.append({
+                    "role": "user",
+                    "content": "[Systém: Používaj iba lokálny model Ollama]",
+                })
+
+            elif cmd == "/cloud":
+                print(f"{G}Prepnuté na Claude API.{RESET}")
+                conversation.append({
+                    "role": "user",
+                    "content": "[Systém: Používaj Claude API]",
+                })
+
+            else:
+                print(f"{R}Neznámy príkaz: {cmd}. Skús /help.{RESET}\n")
+
+            continue
+
+        # ─── Regular chat ────────────────────────────────────────────────────
+        conversation.append({"role": "user", "content": user_input})
+        try:
+            await stream_chat(conversation)
+            # Naive: append placeholder — real impl reads streamed response
+            conversation.append({"role": "assistant", "content": "[response]"})
+        except Exception as exc:
+            print(f"{R}Chyba: {exc}{RESET}\n")
+
+
+# ─── CLI entry points ─────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="aios",
+        description="AIOS — AI Operating System CLI",
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("shell", help="Interaktívny AI shell (default)")
+
+    p_agent = sub.add_parser("agent", help="Spusti IT agenta")
+    p_agent.add_argument("task", nargs="+", help="Popis úlohy pre agenta")
+
+    p_chat = sub.add_parser("chat", help="Jednorázový dotaz")
+    p_chat.add_argument("prompt", nargs="+")
+    p_chat.add_argument("--local", action="store_true")
+    p_chat.add_argument("--cloud", action="store_true")
+
+    sub.add_parser("docker", help="Docker status")
+    sub.add_parser("sysinfo", help="Systémové info")
+    sub.add_parser("status", help="AIOS daemon status")
+
+    args = parser.parse_args()
+
+    if args.command == "agent":
+        asyncio.run(run_agent(" ".join(args.task)))
+    elif args.command == "chat":
+        prompt = " ".join(args.prompt)
+        messages = [{"role": "user", "content": prompt}]
+        asyncio.run(stream_chat(messages))
+    elif args.command == "docker":
+        asyncio.run(docker_status())
+    elif args.command == "sysinfo":
+        asyncio.run(system_info())
+    elif args.command == "status":
+        async def _status():
+            ok = await check_daemon()
+            print_status(ok, f"AIOS daemon ({DAEMON_URL})")
+        asyncio.run(_status())
+    else:
+        asyncio.run(interactive_shell())
+
+
+if __name__ == "__main__":
+    main()

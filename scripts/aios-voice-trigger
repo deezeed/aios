@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""
+Manual voice trigger — called by Sway keybinding (Super+V).
+Sends a notification, then tells AIOS daemon to listen for one command.
+"""
+import httpx, subprocess, sys
+
+def notify(msg: str):
+    subprocess.run(["notify-send", "-i", "microphone", "AIOS Voice", msg], check=False)
+
+try:
+    r = httpx.post("http://127.0.0.1:7474/voice/speak",
+                   json={"text": "Počúvam.", "priority": True}, timeout=3.0)
+    notify("Hovorte príkaz...")
+except Exception as exc:
+    notify(f"AIOS daemon nedostupný: {exc}")
+    sys.exit(1)
