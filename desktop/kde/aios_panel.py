@@ -51,8 +51,18 @@ class MessageWorker(QThread):
                     resp.raise_for_status()
                     data = resp.json()
                     self.chunk_received.emit(data.get("response", ""))
+        except httpx.ConnectError:
+            self.error.emit(
+                "AIOS daemon nie je spustený.\n\n"
+                "Spusti ho príkazom:\n"
+                "  python -m core.daemon.aiosd\n\n"
+                "alebo:\n"
+                "  sudo systemctl start aiosd"
+            )
+        except httpx.TimeoutException:
+            self.error.emit("Časový limit vypršal — daemon neodpovedá.")
         except Exception as exc:
-            self.error.emit(str(exc))
+            self.error.emit(f"Chyba: {type(exc).__name__}: {exc}")
         finally:
             self.finished.emit()
 
@@ -108,12 +118,20 @@ class AIOSPanel(QMainWindow):
     def _setup_window(self):
         self.setWindowTitle("AIOS Panel")
         self.setFixedWidth(PANEL_WIDTH)
-        self.setWindowFlags(
-            Qt.WindowType.Tool |
-            Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint
-        )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        import platform
+        if platform.system() == "Linux":
+            self.setWindowFlags(
+                Qt.WindowType.Tool |
+                Qt.WindowType.FramelessWindowHint |
+                Qt.WindowType.WindowStaysOnTopHint
+            )
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        else:
+            # Windows: štandardné okno, vždy navrchu
+            self.setWindowFlags(
+                Qt.WindowType.Window |
+                Qt.WindowType.WindowStaysOnTopHint
+            )
 
         screen = QApplication.primaryScreen().geometry()
         self.setGeometry(
@@ -124,12 +142,14 @@ class AIOSPanel(QMainWindow):
         )
 
     def _setup_ui(self):
+        import platform
+        radius = "12px" if platform.system() == "Linux" else "0px"
         central = QWidget()
         central.setObjectName("central")
         central.setStyleSheet(f"""
             #central {{
                 background-color: {BG_DARK};
-                border-radius: 12px;
+                border-radius: {radius};
                 border: 1px solid #263238;
             }}
         """)
