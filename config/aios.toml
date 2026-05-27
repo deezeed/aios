@@ -28,7 +28,7 @@ max_tokens = 8192
 # API key loaded from env: ANTHROPIC_API_KEY
 
 [voice]
-enabled = true
+enabled = false  # na Linux nastaviť na true
 wake_word = "aios"
 wake_word_sensitivity = 0.7
 language = "sk"  # Slovak, falls back to "en"

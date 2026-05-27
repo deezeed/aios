@@ -166,7 +166,16 @@ class CloudAnthropicClient:
     def __init__(self, model: str, fast_model: str):
         self.model = model
         self.fast_model = fast_model
-        self._client = AsyncAnthropic()  # reads ANTHROPIC_API_KEY from env
+        import os
+        self._api_key = os.getenv("ANTHROPIC_API_KEY")
+        self._client = AsyncAnthropic(api_key=self._api_key) if self._api_key else None
+
+    def _require_client(self):
+        if self._client is None:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY nie je nastavený. "
+                "Spusti: $env:ANTHROPIC_API_KEY='sk-ant-...'"
+            )
 
     def pick_model(self, complexity: TaskComplexity) -> str:
         if complexity in (TaskComplexity.TRIVIAL, TaskComplexity.SIMPLE):
@@ -176,6 +185,7 @@ class CloudAnthropicClient:
     async def chat_stream(self, model: str, messages: list[Message],
                           system: Optional[str], temperature: float,
                           max_tokens: int) -> AsyncIterator[str]:
+        self._require_client()
         anthropic_messages = [
             {"role": m.role, "content": m.content}
             for m in messages

@@ -14,10 +14,14 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-import tomllib
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib  # Python < 3.11 backport
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -29,7 +33,8 @@ from core.voice.voice_interface import VoiceInterface
 logger = logging.getLogger("aios.daemon")
 
 CONFIG_PATH = Path(os.getenv("AIOS_CONFIG", "/etc/aios/aios.toml"))
-FALLBACK_CONFIG = Path(__file__).resolve().parents[3] / "config" / "aios.toml"
+# parents[2] = core/daemon -> core -> aios (project root)
+FALLBACK_CONFIG = Path(__file__).resolve().parents[2] / "config" / "aios.toml"
 
 
 def load_config() -> dict:
@@ -86,18 +91,31 @@ async def health():
 
 @app.post("/chat")
 async def chat(body: ChatBody):
-    messages = [Message(role=m["role"], content=m["content"]) for m in body.messages]
-    req = ChatRequest(
-        messages=messages,
-        system=body.system,
-        max_tokens=body.max_tokens,
-        temperature=body.temperature,
-        stream=False,
-        force_local=body.force_local,
-        force_cloud=body.force_cloud,
-    )
-    response = await _router.chat(req)
-    return {"response": response}
+    if not _router:
+        return JSONResponse(status_code=503, content={"error": "Daemon not initialized"})
+    try:
+        messages = [Message(role=m["role"], content=m["content"]) for m in body.messages]
+        req = ChatRequest(
+            messages=messages,
+            system=body.system,
+            max_tokens=body.max_tokens,
+            temperature=body.temperature,
+            stream=False,
+            force_local=body.force_local,
+            force_cloud=body.force_cloud,
+        )
+        response = await _router.chat(req)
+        return {"response": response}
+    except Exception as exc:
+        logger.error(f"Chat failed: {exc}")
+        msg = str(exc)
+        if "ANTHROPIC_API_KEY" in msg or "authentication" in msg.lower() or "api_key" in msg.lower():
+            detail = "Chýba ANTHROPIC_API_KEY. Nastav ho: $env:ANTHROPIC_API_KEY='sk-ant-...'"
+        elif "connection" in msg.lower() or "connect" in msg.lower():
+            detail = "Ollama nie je dostupné a cloud API zlyhalo. Spusti Ollama alebo nastav ANTHROPIC_API_KEY."
+        else:
+            detail = f"AI router zlyhal: {msg}"
+        return JSONResponse(status_code=503, content={"error": detail})
 
 
 @app.websocket("/chat/stream")
@@ -123,15 +141,21 @@ async def chat_stream(ws: WebSocket):
 
 @app.post("/agent/run")
 async def agent_run(body: AgentTaskBody):
-    run = await _it_agent.run(body.task, body.context)
-    return {
-        "id": run.id,
-        "status": run.status.value,
-        "output": run.final_output,
-        "error": run.error,
-        "steps": len(run.steps),
-        "duration_s": run.duration_seconds,
-    }
+    if not _it_agent:
+        return JSONResponse(status_code=503, content={"error": "Agent not initialized"})
+    try:
+        run = await _it_agent.run(body.task, body.context)
+        return {
+            "id": run.id,
+            "status": run.status.value,
+            "output": run.final_output,
+            "error": run.error,
+            "steps": len(run.steps),
+            "duration_s": run.duration_seconds,
+        }
+    except Exception as exc:
+        logger.error(f"Agent run failed: {exc}")
+        return JSONResponse(status_code=503, content={"error": f"Agent zlyhal: {exc}"})
 
 
 @app.post("/voice/speak")
