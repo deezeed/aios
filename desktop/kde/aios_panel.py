@@ -19,8 +19,8 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QColor, QFont, QIcon, QPalette
 from PyQt6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QPushButton, QScrollArea, QSizePolicy,
+    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QLineEdit, QMainWindow, QPushButton, QScrollArea, QSizePolicy,
     QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget, QMenu
 )
 
@@ -191,31 +191,8 @@ class AIOSPanel(QMainWindow):
         self.scroll.setWidget(self.messages_widget)
         main_layout.addWidget(self.scroll, 1)
 
-        # Suggestions
-        suggestions_widget = QWidget()
-        suggestions_widget.setStyleSheet("background: transparent;")
-        sug_layout = QHBoxLayout(suggestions_widget)
-        sug_layout.setContentsMargins(8, 4, 8, 4)
-        sug_layout.setSpacing(4)
-
-        suggestions = ["Docker status", "Sysinfo", "Git log"]
-        for sug in suggestions:
-            btn = QPushButton(sug)
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: #0d1117;
-                    color: {ACCENT};
-                    border: 1px solid #263238;
-                    border-radius: 12px;
-                    padding: 3px 10px;
-                    font-size: 10px;
-                }}
-                QPushButton:hover {{ background: #263238; }}
-            """)
-            btn.clicked.connect(lambda _, s=sug: self._send(s))
-            sug_layout.addWidget(btn)
-
-        main_layout.addWidget(suggestions_widget)
+        # Quick actions — kategorizované tlačidlá
+        main_layout.addWidget(self._build_quick_actions())
 
         # Input area
         input_widget = QWidget()
@@ -326,6 +303,126 @@ class AIOSPanel(QMainWindow):
         self.scroll.verticalScrollBar().setValue(
             self.scroll.verticalScrollBar().maximum()
         )
+
+    def _build_quick_actions(self) -> QWidget:
+        """
+        Kategorizované rýchle tlačidlá v mriežke.
+        Každá kategória má farebnú hlavičku a 2–4 tlačidlá.
+        """
+        BTN_STYLE = f"""
+            QPushButton {{
+                background: #0d1117;
+                color: {ACCENT};
+                border: 1px solid #1e2a30;
+                border-radius: 6px;
+                padding: 4px 6px;
+                font-size: 10px;
+                text-align: left;
+            }}
+            QPushButton:hover {{ background: #1a2535; border-color: {ACCENT}; }}
+            QPushButton:pressed {{ background: #263238; }}
+        """
+        CAT_STYLE = """
+            QLabel {
+                color: #546e7a;
+                font-size: 9px;
+                font-weight: bold;
+                background: transparent;
+                padding: 2px 4px 0 4px;
+            }
+        """
+
+        # Definícia kategórií: (ikona + názov, [(label, prompt)])
+        categories = [
+            ("🖥  Systém", [
+                ("CPU / RAM",      "Ukáž využitie CPU, RAM a load average"),
+                ("Disk",           "Ukáž obsadenosť disku na všetkých oddieloch"),
+                ("Procesy",        "Ukáž top 10 procesov žerúcich najviac CPU"),
+                ("Uptime",         "Ako dlho beží systém a kto je prihlásený?"),
+            ]),
+            ("🐳  Docker", [
+                ("Kontajnery",     "Vypíš všetky bežiace Docker kontajnery"),
+                ("Stats",          "Ukáž CPU a RAM využitie Docker kontajnerov"),
+                ("Logy (nginx)",   "Ukáž posledných 50 riadkov logov kontajnera nginx"),
+                ("Siete",          "Vypíš Docker siete a ich konfigurácию"),
+            ]),
+            ("☸  Kubernetes", [
+                ("Pods",           "Vypíš všetky pody v default namespace"),
+                ("Nodes",          "Ukáž stav Kubernetes nodov"),
+                ("Services",       "Vypíš Kubernetes services"),
+                ("Events",         "Ukáž posledné Kubernetes udalosti a chyby"),
+            ]),
+            ("🔒  Sieť & Security", [
+                ("Otvorené porty", "Ukáž všetky lokálne otvorené porty a služby"),
+                ("Firewall",       "Ukáž stav UFW firewallu a pravidlá"),
+                ("Pripojenia",     "Ukáž aktívne sieťové pripojenia"),
+                ("Neúsp. loginy",  "Ukáž posledné neúspešné pokusy o prihlásenie"),
+            ]),
+            ("📁  Git", [
+                ("Log",            "Ukáž posledných 10 git commitov"),
+                ("Status",         "Ukáž git status aktuálneho repozitára"),
+                ("Diff",           "Ukáž git diff necommitnutých zmien"),
+                ("Branches",       "Vypíš všetky git vetvy"),
+            ]),
+            ("🤖  AI & Modely", [
+                ("Ollama modely",  "Vypíš lokálne nainštalované Ollama modely"),
+                ("GPU info",       "Ukáž využitie GPU a VRAM"),
+                ("AIOS status",    "Ukáž stav AIOS daemona, AI router a hlas"),
+                ("Agenti",         "Aké AIOS agenty sú dostupné a čo vedia?"),
+            ]),
+        ]
+
+        container = QWidget()
+        container.setStyleSheet("background: #0a0f14; border-top: 1px solid #1e2a30;")
+        outer = QVBoxLayout(container)
+        outer.setContentsMargins(6, 4, 6, 4)
+        outer.setSpacing(2)
+
+        # Scrollovateľná oblasť pre tlačidlá
+        scroll = QScrollArea()
+        scroll.setFixedHeight(180)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setStyleSheet("""
+            QScrollArea { border: none; background: transparent; }
+            QScrollBar:vertical { background: #0a0f14; width: 5px; border-radius: 2px; }
+            QScrollBar::handle:vertical { background: #1e2a30; border-radius: 2px; }
+        """)
+
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent;")
+        grid_layout = QVBoxLayout(inner)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
+        grid_layout.setSpacing(6)
+
+        for cat_label, buttons in categories:
+            # Kategória hlavička
+            cat_header = QLabel(cat_label)
+            cat_header.setStyleSheet(CAT_STYLE)
+            cat_header.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            grid_layout.addWidget(cat_header)
+
+            # Mriežka 2 stĺpce
+            row_widget = QWidget()
+            row_widget.setStyleSheet("background: transparent;")
+            row = QGridLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(3)
+
+            for i, (label, prompt) in enumerate(buttons):
+                btn = QPushButton(label)
+                btn.setStyleSheet(BTN_STYLE)
+                btn.setFixedHeight(26)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.clicked.connect(lambda _, p=prompt: self._send(p))
+                row.addWidget(btn, i // 2, i % 2)
+
+            grid_layout.addWidget(row_widget)
+
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
+        return container
 
     def _on_send(self):
         text = self.input.text().strip()
