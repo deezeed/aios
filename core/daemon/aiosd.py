@@ -24,11 +24,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.routing.router import AIRouter, ChatRequest, Message
 from core.agents.it_agent import ITAgent
 from core.voice.voice_interface import VoiceInterface
+from services.devops.pipeline_agent import DevOpsAgent
+from services.mldev.ml_agent import MLAgent
+from services.security.security_agent import SecurityAgent
 
 logger = logging.getLogger("aios.daemon")
 
@@ -55,6 +58,9 @@ app.add_middleware(
 
 _router: Optional[AIRouter] = None
 _it_agent: Optional[ITAgent] = None
+_devops_agent: Optional[DevOpsAgent] = None
+_ml_agent: Optional[MLAgent] = None
+_security_agent: Optional[SecurityAgent] = None
 _voice: Optional[VoiceInterface] = None
 _config: dict = {}
 
@@ -158,6 +164,53 @@ async def agent_run(body: AgentTaskBody):
         return JSONResponse(status_code=503, content={"error": f"Agent zlyhal: {exc}"})
 
 
+def _agent_response(run) -> dict:
+    return {
+        "id": run.id,
+        "status": run.status.value,
+        "output": run.final_output,
+        "error": run.error,
+        "steps": len(run.steps),
+        "duration_s": run.duration_seconds,
+    }
+
+
+@app.post("/agent/devops/run")
+async def devops_agent_run(body: AgentTaskBody):
+    if not _devops_agent:
+        return JSONResponse(status_code=503, content={"error": "DevOps agent not initialized"})
+    try:
+        run = await _devops_agent.run(body.task, body.context)
+        return _agent_response(run)
+    except Exception as exc:
+        logger.error(f"DevOps agent failed: {exc}")
+        return JSONResponse(status_code=503, content={"error": f"DevOps agent zlyhal: {exc}"})
+
+
+@app.post("/agent/ml/run")
+async def ml_agent_run(body: AgentTaskBody):
+    if not _ml_agent:
+        return JSONResponse(status_code=503, content={"error": "ML agent not initialized"})
+    try:
+        run = await _ml_agent.run(body.task, body.context)
+        return _agent_response(run)
+    except Exception as exc:
+        logger.error(f"ML agent failed: {exc}")
+        return JSONResponse(status_code=503, content={"error": f"ML agent zlyhal: {exc}"})
+
+
+@app.post("/agent/security/run")
+async def security_agent_run(body: AgentTaskBody):
+    if not _security_agent:
+        return JSONResponse(status_code=503, content={"error": "Security agent not initialized"})
+    try:
+        run = await _security_agent.run(body.task, body.context)
+        return _agent_response(run)
+    except Exception as exc:
+        logger.error(f"Security agent failed: {exc}")
+        return JSONResponse(status_code=503, content={"error": f"Security agent zlyhal: {exc}"})
+
+
 @app.post("/voice/speak")
 async def voice_speak(body: SpeakBody):
     if _voice:
@@ -210,7 +263,7 @@ async def on_voice_command(text: str):
 
 
 async def start_daemon():
-    global _router, _it_agent, _voice, _config
+    global _router, _it_agent, _devops_agent, _ml_agent, _security_agent, _voice, _config
 
     logging.basicConfig(
         level=logging.INFO,
@@ -222,6 +275,10 @@ async def start_daemon():
 
     _router = AIRouter(_config.get("ai", {}))
     _it_agent = ITAgent("it-agent", _router)
+    _devops_agent = DevOpsAgent("devops-agent", _router)
+    _ml_agent = MLAgent("ml-agent", _router)
+    _security_agent = SecurityAgent("security-agent", _router)
+    logger.info("All agents initialized")
 
     if _config.get("voice", {}).get("enabled", False):
         loop = asyncio.get_event_loop()
