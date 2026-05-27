@@ -283,10 +283,30 @@ class AIRouter:
         model = self.cloud.pick_model(complexity)
         return RouteDecision("cloud", model, "speed: cloud", 0.002)
 
+    def _no_backend_message(self) -> str:
+        has_key = bool(self.cloud._api_key)
+        if not has_key:
+            return (
+                "⚠️ Žiadny AI backend nie je dostupný.\n\n"
+                "Ollama nebeží (http://localhost:11434) a ANTHROPIC_API_KEY nie je nastavený.\n\n"
+                "Možnosti:\n"
+                "• Spusti Ollama: ollama serve\n"
+                "• Nastav API kľúč: $env:ANTHROPIC_API_KEY='sk-ant-...'"
+            )
+        return (
+            "⚠️ Ollama nie je dostupná a cloud API zlyhalo.\n\n"
+            "Skontroluj ANTHROPIC_API_KEY alebo spusti Ollama: ollama serve"
+        )
+
     async def stream(self, request: ChatRequest) -> AsyncIterator[str]:
         local_ok = await self._check_local()
-        decision = self._decide(request, local_ok)
 
+        # No backend available at all — return informative message instead of raising
+        if not local_ok and not self.cloud._api_key:
+            yield self._no_backend_message()
+            return
+
+        decision = self._decide(request, local_ok)
         logger.info(f"Route → {decision.provider}/{decision.model} ({decision.reason})")
 
         try:
@@ -306,6 +326,9 @@ class AIRouter:
         except Exception as exc:
             if decision.provider == "local" and self.fallback:
                 logger.warning(f"Local failed ({exc}), falling back to cloud")
+                if not self.cloud._api_key:
+                    yield self._no_backend_message()
+                    return
                 cloud_model = self.cloud.pick_model(TaskComplexity.MODERATE)
                 async for chunk in self.cloud.chat_stream(
                     cloud_model, request.messages,
