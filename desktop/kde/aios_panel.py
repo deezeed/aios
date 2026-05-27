@@ -34,7 +34,9 @@ BG_MSG      = "#16213e"
 BG_USER     = "#0f3460"
 BG_CARD     = "#0d1117"
 BG_INPUT    = "#0d1117"
-AGENTS_FILE = Path.home() / ".config" / "aios" / "agents.json"
+AGENTS_FILE   = Path.home() / ".config" / "aios" / "agents.json"
+HISTORY_FILE  = Path.home() / ".config" / "aios" / "chat_history.json"
+HISTORY_MAX   = 100  # max správ uložených v histórii
 
 _MD_CSS = f"""
 <style>
@@ -221,6 +223,7 @@ class MessageBubble(QWidget):
     def __init__(self, text: str, is_user: bool):
         super().__init__()
         self._is_user = is_user
+        self.raw_text = text  # vždy aktuálny plain text pre uloženie histórie
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 3, 8, 3)
         lay.setSpacing(2)
@@ -259,6 +262,7 @@ class MessageBubble(QWidget):
         self._browser.setFixedHeight(min(max(doc_h + 20, 40), 600))
 
     def update_text(self, t: str):
+        self.raw_text = t
         if self._is_user:
             self._lbl.setText(t)
         else:
@@ -273,6 +277,7 @@ class ChatTab(QWidget):
         self.worker: ChatWorker | None = None
         self._bubble: MessageBubble | None = None
         self._build_ui()
+        self._load_history()
 
     def _build_ui(self):
         lay = QVBoxLayout(self)
@@ -315,7 +320,16 @@ class ChatTab(QWidget):
         self.send_btn.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
         self.send_btn.setStyleSheet(BTN_PRIMARY.replace("font-size: 10px;", ""))
         self.send_btn.clicked.connect(self._send)
+        clear_btn = QPushButton("🗑")
+        clear_btn.setFixedSize(30, 30)
+        clear_btn.setToolTip("Vymazať históriu chatu")
+        clear_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: #546e7a; border: none; font-size: 14px; }}
+            QPushButton:hover {{ color: #ef5350; }}
+        """)
+        clear_btn.clicked.connect(self._clear_history)
         il.addWidget(self.input)
+        il.addWidget(clear_btn)
         il.addWidget(self.send_btn)
         lay.addWidget(inp_w)
 
@@ -497,7 +511,8 @@ class ChatTab(QWidget):
     @pyqtSlot()
     def _on_done(self):
         if self._bubble:
-            self.conversation.append({"role": "assistant", "content": self._bubble._lbl.text()})
+            self.conversation.append({"role": "assistant", "content": self._bubble.raw_text})
+            self._save_history()
         self.send_btn.setEnabled(True)
         self.input.setEnabled(True)
         self.input.setFocus()
@@ -508,6 +523,46 @@ class ChatTab(QWidget):
             self._bubble.update_text(err)
         self.send_btn.setEnabled(True)
         self.input.setEnabled(True)
+
+    # ── História ──────────────────────────────────────────────────────────────
+
+    def _save_history(self):
+        try:
+            HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            data = self.conversation[-HISTORY_MAX:]
+            HISTORY_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _load_history(self):
+        if not HISTORY_FILE.exists():
+            return
+        try:
+            data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
+            if not isinstance(data, list) or not data:
+                return
+            self.conversation = data
+            for msg in data:
+                role, content = msg.get("role"), msg.get("content", "")
+                if role in ("user", "assistant"):
+                    self._add_bubble(content, role == "user")
+            QTimer.singleShot(100, lambda: self.scroll.verticalScrollBar().setValue(
+                self.scroll.verticalScrollBar().maximum()))
+        except Exception:
+            pass
+
+    def _clear_history(self):
+        self.conversation = []
+        try:
+            HISTORY_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+        # Vymaž všetky bubliny okrem uvítacej
+        while self._msgs_lay.count() > 0:
+            item = self._msgs_lay.takeAt(0)
+            if item and item.widget():
+                item.widget().deleteLater()
+        self._add_bubble("Ahoj! Som AIOS. Čo môžem urobiť?", False)
 
 
 # ─── Agent create dialog ──────────────────────────────────────────────────────
